@@ -130,8 +130,8 @@ def get_path_from_json(camera_path: Dict[str, Any]) -> Cameras:
         A Cameras instance with the camera path.
     """
 
-    image_height = camera_path["render_height"]
-    image_width = camera_path["render_width"]
+    global_image_height = camera_path.get("render_height", None)
+    global_image_width = camera_path.get("render_width", None)
 
     if "camera_type" not in camera_path:
         camera_type = CameraType.PERSPECTIVE
@@ -149,10 +149,24 @@ def get_path_from_json(camera_path: Dict[str, Any]) -> Cameras:
     c2ws = []
     fxs = []
     fys = []
+    cxs = []
+    cys = []
+    ws = []
+    hs = []
     for camera in camera_path["camera_path"]:
         # pose
         c2w = torch.tensor(camera["camera_to_world"]).view(4, 4)[:3]
         c2ws.append(c2w)
+        image_width = camera.get("width", global_image_width)
+        image_height = camera.get("height", global_image_height)
+        if image_height is None or image_width is None:
+            raise ValueError(
+                "Image resolution must be specified either as 'render_height' and 'render_width' on top dictionary "
+                "level or as 'width' and 'height' for each frame.")
+        ws.append(image_width)
+        hs.append(image_height)
+        cxs.append(camera.get("cx", image_width / 2))
+        cys.append(camera.get("cy", image_height / 2))
         if camera_type in [
             CameraType.EQUIRECTANGULAR,
             CameraType.OMNIDIRECTIONALSTEREO_L,
@@ -164,12 +178,17 @@ def get_path_from_json(camera_path: Dict[str, Any]) -> Cameras:
             fys.append(image_height)
         else:
             # field of view
-            fov = camera["fov"]
-            focal_length = three_js_perspective_camera_focal_length(fov, image_height)
-            fxs.append(focal_length)
-            fys.append(focal_length)
+            fl_x = camera.get("fl_x", None)
+            fl_y = camera.get("fl_y", None)
+            if fl_x is None or fl_y is None:
+                fov = camera["fov"]
+                focal_length_from_fov = three_js_perspective_camera_focal_length(fov, image_height)
+            else:
+                focal_length_from_fov = None
+            fxs.append(fl_x or focal_length_from_fov)
+            fys.append(fl_y or focal_length_from_fov)
 
-    # Iff ALL cameras in the path have a "time" value, construct Cameras with times
+    # If ALL cameras in the path have a "time" value, construct Cameras with times
     if all("render_time" in camera for camera in camera_path["camera_path"]):
         times = torch.tensor([camera["render_time"] for camera in camera_path["camera_path"]])
     else:
@@ -178,11 +197,17 @@ def get_path_from_json(camera_path: Dict[str, Any]) -> Cameras:
     camera_to_worlds = torch.stack(c2ws, dim=0)
     fx = torch.tensor(fxs)
     fy = torch.tensor(fys)
+    cx = torch.tensor(cxs)
+    cy = torch.tensor(cys)
+    w = torch.tensor(ws)
+    h = torch.tensor(hs)
     return Cameras(
         fx=fx,
         fy=fy,
-        cx=image_width / 2,
-        cy=image_height / 2,
+        cx=cx,
+        cy=cy,
+        width=w,
+        height=h,
         camera_to_worlds=camera_to_worlds,
         camera_type=camera_type,
         times=times,
