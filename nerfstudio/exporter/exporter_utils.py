@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 import open3d as o3d
@@ -291,7 +291,10 @@ def render_trajectory(
     return images, depths
 
 
-def collect_camera_poses_for_dataset(dataset: Optional[InputDataset]) -> List[Dict[str, Any]]:
+def collect_camera_poses_for_dataset(
+        dataset: Optional[InputDataset],
+        json_format: Literal["transforms", "camera_path"]
+) -> List[Dict[str, Any]]:
     """Collects rescaled, translated and optimised camera poses for a dataset.
 
     Args:
@@ -317,13 +320,25 @@ def collect_camera_poses_for_dataset(dataset: Optional[InputDataset]) -> List[Di
             {
                 "file_path": str(image_filename),
                 "transform": transform,
+            } if json_format == "transforms" else
+            {
+                "file_path": str(image_filename),
+                "camera_to_world": transform + [[0, 0, 0, 1]],
+                "fl_x": cameras.fx[idx].item(),
+                "fl_y": cameras.fy[idx].item(),
+                "cx": cameras.cx[idx].item(),
+                "cy": cameras.cy[idx].item(),
+                "width": cameras.width[idx].item(),
+                "height": cameras.height[idx].item(),
+                "aspect": 1.0,
             }
         )
 
     return frames
 
 
-def collect_camera_poses(pipeline: VanillaPipeline) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def collect_camera_poses(pipeline: VanillaPipeline, json_format: Literal["transforms", "camera_path"]) \
+        -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Collects camera poses for train and eval datasets.
 
     Args:
@@ -339,7 +354,7 @@ def collect_camera_poses(pipeline: VanillaPipeline) -> Tuple[List[Dict[str, Any]
     eval_dataset = pipeline.datamanager.eval_dataset
     assert isinstance(eval_dataset, InputDataset)
 
-    train_frames = collect_camera_poses_for_dataset(train_dataset)
-    eval_frames = collect_camera_poses_for_dataset(eval_dataset)
+    train_frames = collect_camera_poses_for_dataset(train_dataset, json_format)
+    eval_frames = collect_camera_poses_for_dataset(eval_dataset, json_format)
 
     return train_frames, eval_frames

@@ -447,6 +447,9 @@ class ExportCameraPoses(Exporter):
     Export camera poses to a .json file.
     """
 
+    json_format: Literal["transforms", "camera_path"] = "transforms"
+    """Json format. Use "camera_path" to export in a format expected by ns-render (for rendering dataset images)."""
+
     def main(self) -> None:
         """Export camera poses"""
         if not self.output_dir.exists():
@@ -454,17 +457,28 @@ class ExportCameraPoses(Exporter):
 
         _, pipeline, _, _ = eval_setup(self.load_config)
         assert isinstance(pipeline, VanillaPipeline)
-        train_frames, eval_frames = collect_camera_poses(pipeline)
+        train_frames, eval_frames = collect_camera_poses(pipeline, self.json_format)
 
-        for file_name, frames in [("transforms_train.json", train_frames), ("transforms_eval.json", eval_frames)]:
+        for file_name, frames in [
+            (f"{self.json_format}_train.json", train_frames), (f"{self.json_format}_eval.json", eval_frames)
+        ]:
             if len(frames) == 0:
                 CONSOLE.print(f"[bold yellow]No frames found for {file_name}. Skipping.")
                 continue
 
             output_file_path = os.path.join(self.output_dir, file_name)
 
+            if self.json_format == "transforms":
+                save_data = frames
+            elif self.json_format == "camera_path":
+                save_data = {
+                    "seconds": len(frames),
+                    "camera_path": frames,
+                }
+            else:
+                raise ValueError(f"Save format {self.json_format} is not supported")
             with open(output_file_path, "w", encoding="UTF-8") as f:
-                json.dump(frames, f, indent=4)
+                json.dump(save_data, f, indent=4)
 
             CONSOLE.print(f"[bold green]:white_check_mark: Saved poses to {output_file_path}")
 
