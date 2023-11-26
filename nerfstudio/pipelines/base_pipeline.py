@@ -110,10 +110,16 @@ class Pipeline(nn.Module):
     def load_state_dict(self, state_dict: Mapping[str, Any], strict: Optional[bool] = None):
         is_ddp_model_state = True
         model_state = {}
+        untrained_state = self.state_dict()
         for key, value in state_dict.items():
             if key.startswith("_model."):
                 # remove the "_model." prefix from key
-                model_state[key[len("_model.") :]] = value
+                key_strip = key.lstrip("_model.")
+                # don't load embedding_appearance if the number of train images changed
+                if "field.embedding_appearance" in key and value.shape != untrained_state[key_strip].shape:
+                    model_state[key_strip] = untrained_state[key_strip]
+                else:
+                    model_state[key_strip] = value
                 # make sure that the "module." prefix comes from DDP,
                 # rather than an attribute of the model named "module"
                 if not key.startswith("_model.module."):
@@ -122,7 +128,12 @@ class Pipeline(nn.Module):
         if is_ddp_model_state:
             model_state = {key[len("module.") :]: value for key, value in model_state.items()}
 
-        pipeline_state = {key: value for key, value in state_dict.items() if not key.startswith("_model.")}
+        pipeline_state = {
+            key:
+                untrained_state[key] if ("pose_adjustment" in key and key in untrained_state and value.shape != untrained_state[key])
+                else value
+            for key, value in state_dict.items() if not key.startswith("_model.")
+        }
 
         try:
             self.model.load_state_dict(model_state, strict=True)
